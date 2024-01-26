@@ -1,6 +1,7 @@
+use anyhow::Context;
 use cqhttp_bot_frame::bot::BotConfig;
 use serde::Deserialize;
-use std::{fs::File, io::Read};
+use std::path::Path;
 use tencentcloud_sdk::config::ClientConfig;
 
 #[derive(Debug, Deserialize)]
@@ -10,15 +11,29 @@ pub struct PsmConfig {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(untagged)]
+#[serde(rename_all = "snake_case")]
 pub enum ServerConfig {
     TencentCloud(ClientConfig),
 }
 
-pub fn load_from_file() -> PsmConfig {
-    let mut file = File::open("config.yaml").expect("Failed to open config file");
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)
-        .expect("Failed to read config file");
-    serde_yaml::from_str(&contents).expect("Failed to parse config file")
+pub fn load_from_file(path: &Path) -> anyhow::Result<PsmConfig> {
+    config::Config::builder()
+        .add_source(config::File::from(path))
+        .build()
+        .with_context(|| format!("failed to load configuration from {}", path.display()))?
+        .try_deserialize()
+        .context("failed to deserialize configuration")
+}
+
+pub fn default_config() -> String {
+    r#"server:
+    tencent_cloud:
+        ak: ak
+        sk: sk
+bot:
+    websocket: ws://127.0.0.1:9002/ws
+    bot_qq: 123
+    root_qq: 345
+"#
+    .into()
 }

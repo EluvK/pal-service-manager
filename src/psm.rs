@@ -1,13 +1,13 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
-use clap::Parser;
 use cqhttp_bot_frame::{
     bot::{Bot, Handler},
     RecvMsg, SendMsg,
 };
 use tencentcloud_sdk::client::TencentCloudClient;
 use tokio::sync::mpsc::Sender;
+use tracing::info;
 
 use crate::config::{PsmConfig, ServerConfig};
 
@@ -39,6 +39,12 @@ impl PalServiceManager {
             _bot_send_tx: bot_send_tx,
         }
     }
+
+    pub async fn start(&self) -> ! {
+        loop {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
+    }
 }
 
 struct PalTaskHandler {
@@ -55,19 +61,17 @@ impl PalTaskHandler {
     }
 }
 
-#[derive(Debug, Parser)]
-struct BotCmd {
-    #[arg(short, long)]
-    name: String,
-}
+const DEFAULT_REPLY: &str = "使用 `#--help` 来查询命令";
 
 #[async_trait]
 impl Handler for PalTaskHandler {
-    type Cmd = BotCmd;
+    type Cmd = crate::bot_cmd::BotCmd;
     async fn handle_msg(&self, msg: RecvMsg) -> Option<SendMsg> {
-        None
+        info!("psm recv msg: {msg:?} ");
+        Some(SendMsg::reply(msg, DEFAULT_REPLY.into()))
     }
     async fn handle_cmd(&self, cmd: Self::Cmd) -> Option<SendMsg> {
+        info!("psm recv cmd: {cmd:?}");
         None
     }
     fn check_cmd_auth(&self, cmd: &Self::Cmd, ori_msg: &RecvMsg) -> bool {
