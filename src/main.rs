@@ -1,5 +1,6 @@
 pub(crate) mod bot_cmd;
 pub(crate) mod cvm_utils;
+pub(crate) mod server_status;
 
 mod config;
 mod constant;
@@ -24,6 +25,11 @@ struct Args {
     #[clap(long)]
     log_path: Option<String>,
 
+    /// server status file
+    #[clap(long)]
+    server: Option<String>,
+
+    /// enable debug log
     #[clap(long)]
     debug: bool,
 }
@@ -40,9 +46,11 @@ async fn main() -> anyhow::Result<()> {
     let config = config::load_from_file(config_path)?;
     let log_path_str = args.log_path.unwrap_or("./".into());
     let log_path = Path::new(&log_path_str);
+    let server_status_path_str = args.server.unwrap_or("./server_status.yaml".into());
+    let server_status_path = Path::new(&server_status_path_str);
     let _g = file_log(log_path, args.debug)?;
     println!("---- start Pal Service Manager ----");
-    let psm = PalServiceManager::new(config).await;
+    let psm = PalServiceManager::new(config, server_status_path).await;
     psm.start().await;
     Ok(())
 }

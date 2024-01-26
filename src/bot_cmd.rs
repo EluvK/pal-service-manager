@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 #[derive(Debug, Parser)]
 pub struct BotCmd {
     #[command(subcommand)]
-    sub: Option<Commands>,
+    pub sub: Option<Commands>,
 }
 
 #[derive(Debug, Subcommand)]

@@ -1,3 +1,4 @@
 /target
+/logs
 config.yaml
-logs/
+server_status.yaml

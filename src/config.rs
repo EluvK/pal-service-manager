@@ -6,13 +6,13 @@ use tencentcloud_sdk::config::ClientConfig;
 
 #[derive(Debug, Deserialize)]
 pub struct PsmConfig {
-    pub server: ServerConfig,
+    pub csp: CSPConfig,
     pub bot: Option<BotConfig>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ServerConfig {
+pub enum CSPConfig {
     TencentCloud(ClientConfig),
 }
 
@@ -26,7 +26,7 @@ pub fn load_from_file(path: &Path) -> anyhow::Result<PsmConfig> {
 }
 
 pub fn default_config() -> String {
-    r#"server:
+    r#"csp:
     tencent_cloud:
         ak: ak
         sk: sk
