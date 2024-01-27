@@ -1,8 +1,14 @@
+use std::time::Duration;
+
 use itertools::Itertools;
 use tencentcloud_sdk::{
-    client::{cvm::cvm_instance::Price, TencentCloudClient},
+    client::{
+        cvm::cvm_instance::{InstanceState, Price},
+        TencentCloudClient,
+    },
     constant::{InstanceType, Region},
 };
+use tokio::time::{sleep, Instant};
 
 use crate::constant::ServiceInstanceType;
 
@@ -66,4 +72,44 @@ pub async fn query_key_ids(client: &TencentCloudClient) -> anyhow::Result<Vec<St
         .describe_key_pairs(&Region::Hongkong) // whatever here
         .await
         .map(|vk| vk.into_iter().map(|k| k.key_id).collect())
+}
+
+pub async fn query_cvm_ip(
+    client: &TencentCloudClient,
+    region: &Region,
+    instance_id: &str,
+) -> anyhow::Result<String> {
+    let timeout_duration = Duration::from_secs(62);
+    let start_time = Instant::now();
+
+    loop {
+        // 进行轮询查询的操作
+        // ...
+        let resp = client.cvm().instances().describe_instance(region).await?;
+
+        if let Some(ip) = resp
+            .response
+            .instance_set
+            .into_iter()
+            .filter(|i| {
+                i.instance_id == instance_id && i.instance_state == InstanceState::RUNNING
+            })
+            .nth(0)
+        {
+            break ip
+                .public_ip_addresses
+                .ok_or(anyhow::anyhow!(format!("running cvm without ip?")))?
+                .into_iter()
+                .nth(0)
+                .ok_or(anyhow::anyhow!(format!("running cvm without ip?")));
+        }
+
+        // 检查是否超时
+        if Instant::now() - start_time >= timeout_duration {
+            break Err(anyhow::anyhow!("query cvm create status and ip timeout"));
+        }
+
+        // 等待一段时间再进行下一次轮询
+        sleep(Duration::from_secs(5)).await;
+    }
 }

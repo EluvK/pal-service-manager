@@ -11,6 +11,23 @@ pub enum ServiceInstanceType {
     T8C32G,
 }
 
+impl TryFrom<String> for ServiceInstanceType {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.to_ascii_lowercase().as_str() {
+            "2c2g" => Ok(Self::T2C2G),
+            "2c8g" => Ok(Self::T2C8G),
+            "4c8g" => Ok(Self::T4C8G),
+            "2c16g" => Ok(Self::T2C16G),
+            "4c16g" => Ok(Self::T4C16G),
+            "4c32g" => Ok(Self::T4C32G),
+            "8c32g" => Ok(Self::T8C32G),
+            _ => Err(format!("{} is not a valid instance type", value)),
+        }
+    }
+}
+
 impl ServiceInstanceType {
     pub fn to_list(self) -> Vec<InstanceType> {
         match self {
