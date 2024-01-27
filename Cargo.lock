@@ -312,7 +312,7 @@ dependencies = [
 [[package]]
 name = "cqhttp-bot-frame"
 version = "0.0.1"
-source = "git+https://github.com/EluvK/cqhttp-bot-frame.git?branch=master#192169ce66b6853826bab91db81376f0d33789eb"
+source = "git+https://github.com/EluvK/cqhttp-bot-frame.git?branch=master#cd999595c65aa2de7e9b7b4d0154145d00ad4bbf"
 dependencies = [
  "anyhow",
  "async-trait",
