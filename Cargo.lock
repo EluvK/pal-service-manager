@@ -312,6 +312,7 @@ dependencies = [
 [[package]]
 name = "cqhttp-bot-frame"
 version = "0.0.1"
+source = "git+https://github.com/EluvK/cqhttp-bot-frame.git?branch=master#192169ce66b6853826bab91db81376f0d33789eb"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1599,6 +1600,7 @@ dependencies = [
 [[package]]
 name = "tencentcloud-sdk"
 version = "0.0.1"
+source = "git+https://github.com/EluvK/tencentcloud-sdk.git?branch=master#73c446b1d5d77b25936cc6d20c7db473f5290c58"
 dependencies = [
  "anyhow",
  "async-trait",
