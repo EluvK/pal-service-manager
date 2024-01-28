@@ -26,6 +26,25 @@ impl ServerManager {
         Ok(server.instance_type.clone())
     }
 
+    pub fn get_save_name(&self, server: &str) -> ServerManagerResult<Option<String>> {
+        let server = self.find_server_or_err(server)?;
+        Ok(server.save.clone())
+    }
+
+    pub fn get_server_ip(&self, server: &str) -> ServerManagerResult<Option<String>> {
+        let server = self.find_server_or_err(server)?;
+        Ok(server
+            .ip_port
+            .as_ref()
+            .map(|ip_port| ip_port[0..ip_port.find(":").map_or(0, |x| x)].to_string()))
+    }
+
+    pub fn update_save_name(&mut self, server: &str, save_name: &str) -> ServerManagerResult<()> {
+        let server = self.find_server_or_err_mut(server)?;
+        server.save = Some(save_name.to_owned());
+        Ok(())
+    }
+
     pub fn check_server_status(&self, server: &str, status: &Status) -> ServerManagerResult<()> {
         let server = self.find_server_or_err(server)?;
         (&server.status == status).then(|| ()).ok_or(format!(
@@ -53,6 +72,20 @@ impl ServerManager {
         server.ip_port = Some(ip_port.to_owned());
         server.region = Some(region.to_owned());
         server.instance_id = Some(instance_id.to_owned());
+        self.update()?;
+        Ok(())
+    }
+
+    pub fn failed_create_server(&mut self, server: &str) -> ServerManagerResult<()> {
+        let server = self.find_server_or_err_mut(server)?;
+        server.status = Status::Stopped;
+        self.update()?;
+        Ok(())
+    }
+
+    pub fn failed_stop_server(&mut self, server: &str) -> ServerManagerResult<()> {
+        let server = self.find_server_or_err_mut(server)?;
+        server.status = Status::Running;
         self.update()?;
         Ok(())
     }
@@ -104,6 +137,7 @@ pub struct Server {
     pub name: String,
     pub status: Status,
     pub instance_type: String,
+    pub save: Option<String>,
     pub ip_port: Option<String>,
     pub region: Option<String>,
     pub instance_id: Option<String>,
@@ -113,11 +147,14 @@ impl Display for Server {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{name}({status}) ip: {ip_port} type: {instance_type}",
+            "存档{name}(当前服务器状态: {status}) ip: {ip_port} type: {instance_type}
+            存档文件{save}
+            ",
             name = self.name,
             status = self.status,
-            ip_port = self.ip_port.as_deref().unwrap_or("None"),
+            ip_port = self.ip_port.as_deref().unwrap_or("无"),
             instance_type = self.instance_type,
+            save = self.save.as_deref().unwrap_or("无"),
         )
     }
 }

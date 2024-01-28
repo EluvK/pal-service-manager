@@ -4,16 +4,32 @@ use serde::Deserialize;
 use std::path::Path;
 use tencentcloud_sdk::config::ClientConfig;
 
+use crate::local_storage::LocalSaveStorageConfig;
+
 #[derive(Debug, Deserialize)]
 pub struct PsmConfig {
     pub csp: CSPConfig,
     pub bot: Option<BotConfig>,
+    pub storage: SaveStorageConfig,
+    pub ssh: SshConfig,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CSPConfig {
     TencentCloud(ClientConfig),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SaveStorageConfig {
+    Local(LocalSaveStorageConfig),
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SshConfig {
+    pub prikey: String,
+    pub user: String,
 }
 
 pub fn load_from_file(path: &Path) -> anyhow::Result<PsmConfig> {

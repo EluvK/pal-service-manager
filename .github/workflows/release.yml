@@ -13,7 +13,7 @@ jobs:
   create-release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: taiki-e/create-gh-release-action@v1
         with:
           # (required) GitHub token for creating GitHub Releases.
@@ -33,7 +33,7 @@ jobs:
           #   os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
@@ -41,5 +41,7 @@ jobs:
           bin: pal-service-manager
           # (optional) Target triple, default is host triple.
           target: ${{ matrix.target }}
+          # (optional) Comma-separated list of additional files to be included to archive.
+          include: scripts
           # (required) GitHub token for uploading assets to GitHub Releases.
           token: ${{ secrets.PSM_GITHUB_TOKEN }}
