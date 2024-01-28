@@ -16,14 +16,14 @@ use crate::constant::ServiceInstanceType;
 pub async fn query_spot_paid_price(
     client: &TencentCloudClient,
     candidate_regions: &[Region],
-    instance_type: ServiceInstanceType,
+    instance_type: &ServiceInstanceType,
 ) -> anyhow::Result<(Price, (Region, String, InstanceType))> {
     let candidate_instance_type = instance_type.to_list();
 
     let mut handles = vec![];
 
     for region in candidate_regions {
-        let zones = client.cvm().zone().describe_zone(&region).await?;
+        let zones = client.cvm().zone().describe_zone(region).await?;
         if let Some(zones) = zones {
             for (zone, instance_type) in zones
                 .iter()
@@ -60,7 +60,7 @@ pub async fn query_spot_paid_price(
             .unit_price_discount
             .total_cmp(&b.0.instance_price.unit_price_discount)
     });
-    price_result.into_iter().nth(0).ok_or(anyhow::anyhow!(
+    price_result.into_iter().next().ok_or(anyhow::anyhow!(
         "failed to get any available instance of {candidate_instance_type:?}"
     ))
 }
@@ -87,20 +87,16 @@ pub async fn query_cvm_ip(
         // ...
         let resp = client.cvm().instances().describe_instance(region).await?;
 
-        if let Some(ip) = resp
-            .response
-            .instance_set
-            .into_iter()
-            .filter(|i| {
+        if let Some(instance) =
+            resp.response.instance_set.into_iter().find(|i| {
                 i.instance_id == instance_id && i.instance_state == InstanceState::RUNNING
             })
-            .nth(0)
         {
-            break ip
+            break instance
                 .public_ip_addresses
                 .ok_or(anyhow::anyhow!(format!("running cvm without ip?")))?
                 .into_iter()
-                .nth(0)
+                .next()
                 .ok_or(anyhow::anyhow!(format!("running cvm without ip?")));
         }
 

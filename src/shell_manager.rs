@@ -34,7 +34,7 @@ impl ShellManager {
         let mut sess = ssh2::Session::new()?;
         sess.set_tcp_stream(tcp);
         sess.handshake()?;
-        sess.userauth_pubkey_file(user, None, &Path::new(prikey_path), None)?;
+        sess.userauth_pubkey_file(user, None, Path::new(prikey_path), None)?;
         sess.authenticated()
             .then(|| debug!("ssh2 authed"))
             .ok_or(anyhow::anyhow!("ssh2 auth failed"))?;

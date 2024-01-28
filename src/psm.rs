@@ -26,18 +26,14 @@ pub struct PalServiceManager {
 impl PalServiceManager {
     pub async fn new(config: PsmConfig, server_status_path: &std::path::Path) -> Self {
         // need ref
-        let csp_config = match config.csp {
-            CSPConfig::TencentCloud(tencent_cloud_config) => tencent_cloud_config,
-        };
+        let CSPConfig::TencentCloud(csp_config) = config.csp;
         let client = Arc::new(TencentCloudClient::new(&csp_config));
 
         let server_status_manager = Arc::new(Mutex::new(ServerManager::new(server_status_path)));
         let shell_manager = Arc::new(ShellManager::new(config.ssh));
 
         // need_ref
-        let storage_config = match config.storage {
-            SaveStorageConfig::Local(storage_config) => storage_config,
-        };
+        let SaveStorageConfig::Local(storage_config) = config.storage;
         let local_storage = Arc::new(LocalStorage::new(storage_config));
 
         let (instant_tx, instant_rx) = tokio::sync::mpsc::channel::<SendMsg>(10);
@@ -120,7 +116,7 @@ impl PalTaskHandler {
         msg: &RecvMsg,
     ) -> Result<(String, Region, String), String> {
         let (price, (region, zone, instance_type)) =
-            query_spot_paid_price(&self.client, candidate_regions, instance_type)
+            query_spot_paid_price(&self.client, candidate_regions, &instance_type)
                 .await
                 .map_err(|e| format!("query spot paid price err: {e}"))?;
         self.bot_instant_tx
@@ -170,10 +166,10 @@ impl PalTaskHandler {
             .server_status_manager
             .lock()
             .await
-            .check_server_status(&server, &Status::Stopped)
+            .check_server_status(server, &Status::Stopped)
         {
             self.bot_instant_tx
-                .send(msg.reply(format!("{content}")))
+                .send(msg.reply(content.to_string()))
                 .await
                 .unwrap_or_else(Self::err_log);
             return Ok(());
@@ -181,14 +177,14 @@ impl PalTaskHandler {
         self.server_status_manager
             .lock()
             .await
-            .create_server(&server)?;
+            .create_server(server)?;
 
         let candidate_regions = vec![Region::Guangzhou, Region::Nanjing, Region::Shanghai];
         let instance_type: ServiceInstanceType = self
             .server_status_manager
             .lock()
             .await
-            .get_instance_type(&server)?
+            .get_instance_type(server)?
             .try_into()?;
         let mut try_cnt = 0;
         let (ip, region, server_id) = {
@@ -227,7 +223,7 @@ impl PalTaskHandler {
             .server_status_manager
             .lock()
             .await
-            .get_save_name(&server)?;
+            .get_save_name(server)?;
         if let Some(save_name) = save_name {
             // sftp bk files
             self.local_storage
@@ -239,6 +235,10 @@ impl PalTaskHandler {
                 .run(&ip, Script::RestoreSave)
                 .await
                 .map_err(|e| format!("restore save failed: {e}"))?;
+            self.bot_instant_tx
+                .send(msg.reply(format!("Success load save, {}", save_name)))
+                .await
+                .unwrap_or_else(Self::err_log);
         }
 
         // server start
@@ -248,14 +248,14 @@ impl PalTaskHandler {
             .map_err(|e| format!("start server failed: {e}"))?;
 
         self.bot_instant_tx
-            .send(msg.reply(format!("Success create server, ip-port: {:?}:8211", ip)))
+            .send(msg.reply(format!("Success create server, ip-port: {}:8211", ip)))
             .await
             .unwrap_or_else(Self::err_log);
         self.server_status_manager
             .lock()
             .await
             .finish_creating_server(
-                &server,
+                server,
                 &format!("{}:8211", ip),
                 &region.to_string(),
                 &server_id,
@@ -268,10 +268,10 @@ impl PalTaskHandler {
             .server_status_manager
             .lock()
             .await
-            .check_server_status(&server, &Status::Running)
+            .check_server_status(server, &Status::Running)
         {
             self.bot_instant_tx
-                .send(msg.reply(format!("{content}")))
+                .send(msg.reply(content.to_string()))
                 .await
                 .unwrap_or_else(Self::err_log);
             return Ok(());
@@ -282,9 +282,9 @@ impl PalTaskHandler {
             .server_status_manager
             .lock()
             .await
-            .get_server_ip(&server)
+            .get_server_ip(server)
             .map_err(|e| format!("failed to get server ip infomation: {e}"))?
-            .ok_or_else(|| format!("failed to get server ip infomation"))?;
+            .ok_or_else(|| "failed to get server ip infomation".to_string())?;
         let save_name = self
             .shell_manager
             .run(&ip, Script::BackupSave)
@@ -299,14 +299,14 @@ impl PalTaskHandler {
         self.server_status_manager
             .lock()
             .await
-            .update_save_name(&server, &save_name)
+            .update_save_name(server, &save_name)
             .map_err(|e| format!("update saves infomations failed: {e}"))?;
 
         let (region, instance_id) = self
             .server_status_manager
             .lock()
             .await
-            .stop_server(&server)?;
+            .stop_server(server)?;
         let region = Region::from_str(&region).unwrap();
         self.client
             .cvm()
@@ -323,7 +323,7 @@ impl PalTaskHandler {
         self.server_status_manager
             .lock()
             .await
-            .finish_stopping_server(&server)?;
+            .finish_stopping_server(server)?;
 
         Ok(())
     }

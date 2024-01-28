@@ -36,7 +36,7 @@ impl ServerManager {
         Ok(server
             .ip_port
             .as_ref()
-            .map(|ip_port| ip_port[0..ip_port.find(":").map_or(0, |x| x)].to_string()))
+            .map(|ip_port| ip_port[0..ip_port.find(':').map_or(0, |x| x)].to_string()))
     }
 
     pub fn update_save_name(&mut self, server: &str, save_name: &str) -> ServerManagerResult<()> {
@@ -47,7 +47,7 @@ impl ServerManager {
 
     pub fn check_server_status(&self, server: &str, status: &Status) -> ServerManagerResult<()> {
         let server = self.find_server_or_err(server)?;
-        (&server.status == status).then(|| ()).ok_or(format!(
+        (&server.status == status).then_some(()).ok_or(format!(
             "[Error] server current status: {}\n",
             server.status
         ))

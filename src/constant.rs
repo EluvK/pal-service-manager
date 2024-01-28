@@ -29,7 +29,7 @@ impl TryFrom<String> for ServiceInstanceType {
 }
 
 impl ServiceInstanceType {
-    pub fn to_list(self) -> Vec<InstanceType> {
+    pub fn to_list(&self) -> Vec<InstanceType> {
         match self {
             ServiceInstanceType::T2C2G => vec![InstanceType::SA2Medium2],
             ServiceInstanceType::T2C8G => vec![InstanceType::SA2Medium8],
