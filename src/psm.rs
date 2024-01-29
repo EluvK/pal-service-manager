@@ -155,7 +155,7 @@ impl PalTaskHandler {
             .await
             .map_err(|e| format!("init server err: {e}"))?;
         self.bot_instant_tx
-            .send(msg.reply(format!("Success init server, id: {}", server_id)))
+            .send(msg.reply(format!("Success init server, id: {}, install palworld next(will take minutes)", server_id)))
             .await
             .unwrap_or_else(Self::err_log);
         let ip = query_cvm_ip(&self.client, &region, &server_id)
@@ -204,6 +204,7 @@ impl PalTaskHandler {
                 }
             }
         };
+        tokio::time::sleep(Duration::from_secs(5)).await;
 
         // upload script
         self.local_storage
@@ -261,20 +262,9 @@ impl PalTaskHandler {
 
         Ok(())
     }
-    async fn stop_server(&self, server: &str, msg: &RecvMsg) -> Result<(), String> {
-        if let Err(content) = self
-            .server_status_manager
-            .lock()
-            .await
-            .check_server_status(server, &Status::Running)
-        {
-            self.bot_instant_tx
-                .send(msg.reply(content.to_string()))
-                .await
-                .unwrap_or_else(Self::err_log);
-            return Ok(());
-        }
 
+    #[inline]
+    async fn backup_save(&self, server: &str) -> Result<String, String> {
         // add bk save
         let ip = self
             .server_status_manager
@@ -293,6 +283,25 @@ impl PalTaskHandler {
             .download_saves(&save_name, &self.shell_manager.ssh_config, &ip)
             .await
             .map_err(|e| format!("download saves failed: {e}"))?;
+        Ok(save_name)
+    }
+
+    async fn stop_server(&self, server: &str, msg: &RecvMsg) -> Result<(), String> {
+        if let Err(content) = self
+            .server_status_manager
+            .lock()
+            .await
+            .check_server_status(server, &Status::Running)
+        {
+            self.bot_instant_tx
+                .send(msg.reply(content.to_string()))
+                .await
+                .unwrap_or_else(Self::err_log);
+            return Ok(());
+        }
+
+        // add bk save
+        let save_name = self.backup_save(server).await?;
 
         self.server_status_manager
             .lock()
@@ -326,11 +335,36 @@ impl PalTaskHandler {
         Ok(())
     }
 
+    async fn save_server(&self, server: &str, msg: &RecvMsg) -> Result<(), String> {
+        if let Err(content) = self
+            .server_status_manager
+            .lock()
+            .await
+            .check_server_status(server, &Status::Running)
+        {
+            self.bot_instant_tx
+                .send(msg.reply(content.to_string()))
+                .await
+                .unwrap_or_else(Self::err_log);
+            return Ok(());
+        }
+
+        // add bk save
+        let save_name = self.backup_save(server).await?;
+        self.bot_instant_tx
+            .send(msg.reply(format!("back save success {save_name}")))
+            .await
+            .unwrap_or_else(Self::err_log);
+
+        Ok(())
+    }
+
     pub async fn handle_server_cmd(
         &self,
         status: Option<String>,
         start: Option<String>,
         stop: Option<String>,
+        save: Option<String>,
         msg: &RecvMsg,
     ) -> Option<SendMsg> {
         if let Some(server) = status {
@@ -357,6 +391,11 @@ impl PalTaskHandler {
                     .unwrap();
             }
         }
+        if let Some(server) = save {
+            if let Err(content) = self.save_server(&server, msg).await {
+                self.reply_err_msg(content, msg).await;
+            }
+        }
         Some(msg.reply("cmd exec finish.".into()))
     }
 }
@@ -378,7 +417,11 @@ impl Handler for PalTaskHandler {
                     status,
                     start,
                     stop,
-                } => self.handle_server_cmd(status, start, stop, &msg).await,
+                    save,
+                } => {
+                    self.handle_server_cmd(status, start, stop, save, &msg)
+                        .await
+                }
                 Commands::Config { r#type: _type } => None,
             };
             return res;
@@ -391,9 +434,10 @@ impl Handler for PalTaskHandler {
                 status: _status,
                 start,
                 stop,
+                save,
             } = c
             {
-                start.is_some() || stop.is_some()
+                start.is_some() || stop.is_some() || save.is_some()
             } else {
                 false
             }

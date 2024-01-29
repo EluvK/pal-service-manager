@@ -25,6 +25,10 @@ pub enum Commands {
         /// stop Server with Save
         #[clap(long, value_name = "Save Name")]
         stop: Option<String>,
+
+        /// backup current file while running
+        #[clap(long, value_name = "Save Name")]
+        save: Option<String>,
     },
     Config {
         r#type: String,
