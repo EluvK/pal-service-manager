@@ -121,8 +121,11 @@ impl PalTaskHandler {
                 .map_err(|e| format!("query spot paid price err: {e}"))?;
         self.bot_instant_tx
             .send(msg.reply(format!(
-                "Finding lowest price server {} in {} at {:?}",
-                instance_type, region, price
+                "Finding lowest price server {} in {} with {}/h + {}/GB",
+                instance_type,
+                region,
+                price.instance_price.unit_price_discount,
+                price.bandwidth_price.unit_price_discount
             )))
             .await
             .unwrap_or_else(Self::err_log);
@@ -152,7 +155,7 @@ impl PalTaskHandler {
             .await
             .map_err(|e| format!("init server err: {e}"))?;
         self.bot_instant_tx
-            .send(msg.reply(format!("Success init server, id: {:?}", server_id)))
+            .send(msg.reply(format!("Success init server, id: {}", server_id)))
             .await
             .unwrap_or_else(Self::err_log);
         let ip = query_cvm_ip(&self.client, &region, &server_id)
@@ -189,20 +192,15 @@ impl PalTaskHandler {
         let mut try_cnt = 0;
         let (ip, region, server_id) = {
             loop {
-                match self
+                if let Ok(r) = self
                     .query_and_create_server(&candidate_regions, instance_type.clone(), msg)
                     .await
                 {
-                    Ok(r) => break r,
-                    Err(e) => self
-                        .bot_instant_tx
-                        .send(msg.reply(format!("create server failed {e}, retrying...")))
-                        .await
-                        .unwrap_or_else(Self::err_log),
+                    break r;
                 };
                 try_cnt += 1;
                 if try_cnt == 5 {
-                    return Err(String::from("err to create server after 5 times"));
+                    return Err(String::from("err to create server."));
                 }
             }
         };
