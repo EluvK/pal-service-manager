@@ -155,7 +155,10 @@ impl PalTaskHandler {
             .await
             .map_err(|e| format!("init server err: {e}"))?;
         self.bot_instant_tx
-            .send(msg.reply(format!("Success init server, id: {}, install palworld next(will take minutes)", server_id)))
+            .send(msg.reply(format!(
+                "Success init server, id: {}, install palworld next(will take minutes)",
+                server_id
+            )))
             .await
             .unwrap_or_else(Self::err_log);
         let ip = query_cvm_ip(&self.client, &region, &server_id)
@@ -204,7 +207,7 @@ impl PalTaskHandler {
                 }
             }
         };
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        tokio::time::sleep(Duration::from_secs(10)).await;
 
         // upload script
         self.local_storage
