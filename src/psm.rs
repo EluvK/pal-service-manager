@@ -396,19 +396,10 @@ impl Handler for PalTaskHandler {
         None
     }
     async fn check_cmd_auth(&self, cmd: &Self::Cmd, ori_msg: &RecvMsg, root_id: u64) -> bool {
-        let root_cmd = cmd.sub.as_ref().is_some_and(|c| {
-            if let Commands::Server {
-                status: _status,
-                start,
-                stop,
-                save,
-            } = c
-            {
-                start.is_some() || stop.is_some() || save.is_some()
-            } else {
-                false
-            }
-        });
+        let root_cmd = cmd
+            .sub
+            .as_ref()
+            .is_some_and(|c| matches!(c, Commands::Config { .. }));
         debug!("is root cmd: {root_cmd}");
         !root_cmd || ori_msg.from_id == root_id
     }
