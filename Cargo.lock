@@ -1283,6 +1283,7 @@ dependencies = [
  "serde_yaml",
  "ssh2",
  "tencentcloud-sdk",
+ "thiserror",
  "tokio",
  "tracing",
  "tracing-appender",

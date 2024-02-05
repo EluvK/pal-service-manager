@@ -1,13 +1,26 @@
 use std::{fmt::Display, path::Path};
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 pub struct ServerManager {
     path: String,
     servers: Vec<Server>,
 }
 
-type ServerManagerResult<T> = Result<T, String>;
+#[derive(Error, Debug)]
+pub enum ServerManagerError {
+    #[error("Server not found")]
+    ServerNotFound,
+    #[error("Server status not match, current status: {0}")]
+    ServerStatusNotMatch(Status),
+    #[error("Server IO error: {0}")]
+    ServerIO(#[from] std::io::Error),
+    #[error("Server serde error: {0}")]
+    ServerSerde(#[from] serde_yaml::Error),
+}
+
+type ServerManagerResult<T> = Result<T, ServerManagerError>;
 impl ServerManager {
     pub fn new(path: &Path) -> Self {
         let path = path.to_str().unwrap().to_string();
@@ -42,15 +55,16 @@ impl ServerManager {
     pub fn update_save_name(&mut self, server: &str, save_name: &str) -> ServerManagerResult<()> {
         let server = self.find_server_or_err_mut(server)?;
         server.save = Some(save_name.to_owned());
+        self.update()?;
         Ok(())
     }
 
     pub fn check_server_status(&self, server: &str, status: &Status) -> ServerManagerResult<()> {
         let server = self.find_server_or_err(server)?;
-        (&server.status == status).then_some(()).ok_or(format!(
-            "[Error] server current status: {}\n",
-            server.status
-        ))
+        (&server.status == status).then_some(()).ok_or(
+            ServerManagerError::ServerStatusNotMatch(server.status.clone()),
+        )?;
+        Ok(())
     }
 
     pub fn create_server(&mut self, server: &str) -> ServerManagerResult<()> {
@@ -76,11 +90,15 @@ impl ServerManager {
         Ok(())
     }
 
-    pub fn failed_create_server(&mut self, server: &str) -> ServerManagerResult<()> {
+    pub fn failed_create_server(
+        &mut self,
+        server: &str,
+    ) -> ServerManagerResult<(Option<String>, Option<String>)> {
         let server = self.find_server_or_err_mut(server)?;
         server.status = Status::Stopped;
+        let (region, id) = (server.region.clone(), server.instance_id.clone());
         self.update()?;
-        Ok(())
+        Ok((id, region))
     }
 
     pub fn failed_stop_server(&mut self, server: &str) -> ServerManagerResult<()> {
@@ -112,22 +130,28 @@ impl ServerManager {
     }
 
     fn find_server_or_err_mut(&mut self, server: &str) -> ServerManagerResult<&mut Server> {
+        self.reload_servers()?;
         self.servers
             .iter_mut()
             .find(|s| s.name == server)
-            .ok_or("[Error] server not found\n".into())
+            .ok_or(ServerManagerError::ServerNotFound)
     }
     fn find_server_or_err(&self, server: &str) -> ServerManagerResult<&Server> {
         self.servers
             .iter()
             .find(|s| s.name == server)
-            .ok_or("[Error] server not found\n".into())
+            .ok_or(ServerManagerError::ServerNotFound)
     }
 
     fn update(&mut self) -> ServerManagerResult<()> {
-        let data = serde_yaml::to_string(&self.servers)
-            .map_err(|e| format!("[Error] serde_yaml err: {e}"))?;
-        std::fs::write(&self.path, data).map_err(|e| format!("[Error] fs write err: {e}"))?;
+        let data = serde_yaml::to_string(&self.servers)?;
+        std::fs::write(&self.path, data)?;
+        Ok(())
+    }
+
+    fn reload_servers(&mut self) -> ServerManagerResult<()> {
+        let data = std::fs::read_to_string(&self.path)?;
+        self.servers = serde_yaml::from_str(&data)?;
         Ok(())
     }
 }
@@ -159,7 +183,7 @@ impl Display for Server {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub enum Status {
     Creating,
     Running,

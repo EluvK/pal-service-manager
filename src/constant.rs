@@ -12,7 +12,7 @@ pub enum ServiceInstanceType {
 }
 
 impl TryFrom<String> for ServiceInstanceType {
-    type Error = String;
+    type Error = anyhow::Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         match value.to_ascii_lowercase().as_str() {
@@ -23,7 +23,7 @@ impl TryFrom<String> for ServiceInstanceType {
             "4c16g" => Ok(Self::T4C16G),
             "4c32g" => Ok(Self::T4C32G),
             "8c32g" => Ok(Self::T8C32G),
-            _ => Err(format!("{} is not a valid instance type", value)),
+            _ => Err(anyhow::anyhow!("{} is not a valid instance type", value)),
         }
     }
 }

@@ -14,6 +14,7 @@ use crate::{
     config::{CSPConfig, PsmConfig, SaveStorageConfig},
     constant::ServiceInstanceType,
     cvm_utils::{query_cvm_ip, query_key_ids, query_spot_paid_price},
+    error::PSMError,
     local_storage::LocalStorage,
     server_status::{ServerManager, Status},
     shell_manager::{Script, ShellManager},
@@ -92,16 +93,10 @@ impl PalTaskHandler {
     fn err_log(e: impl Display) {
         error!("PalTaskHandler ERROR :{e}");
     }
-    async fn reply_err_msg(&self, content: String, msg: &RecvMsg) {
-        self.bot_instant_tx
-            .send(msg.reply(content))
-            .await
-            .unwrap_or_else(Self::err_log);
-    }
     async fn list_server(&self, server: String, msg: &RecvMsg) {
         let content = match self.server_status_manager.lock().await.list(&server) {
             Ok(result) => result,
-            Err(msg) => msg,
+            Err(e) => e.to_string(),
         };
         self.bot_instant_tx
             .send(msg.reply(content))
@@ -167,59 +162,54 @@ impl PalTaskHandler {
         Ok((ip, region, server_id))
     }
 
-    async fn start_server(&self, server: &str, msg: &RecvMsg) -> Result<(), String> {
-        if let Err(content) = self
-            .server_status_manager
-            .lock()
-            .await
-            .check_server_status(server, &Status::Stopped)
-        {
-            self.bot_instant_tx
-                .send(msg.reply(content.to_string()))
-                .await
-                .unwrap_or_else(Self::err_log);
-            return Ok(());
-        }
+    async fn start_server(&self, server: &str, msg: &RecvMsg) -> Result<(), PSMError> {
         self.server_status_manager
             .lock()
             .await
-            .create_server(server)?;
-
-        let candidate_regions = vec![Region::Guangzhou, Region::Nanjing, Region::Shanghai];
-        let instance_type: ServiceInstanceType = self
-            .server_status_manager
-            .lock()
-            .await
-            .get_instance_type(server)?
-            .try_into()?;
-        let mut try_cnt = 0;
-        let (ip, region, server_id) = {
-            loop {
-                if let Ok(r) = self
-                    .query_and_create_server(&candidate_regions, instance_type.clone(), msg)
-                    .await
-                {
-                    break r;
-                };
-                try_cnt += 1;
-                if try_cnt == 5 {
-                    return Err(String::from("err to create server."));
+            .check_server_status(server, &Status::Stopped)?;
+        let (ip, region, server_id) = async {
+            self.server_status_manager
+                .lock()
+                .await
+                .create_server(server)?;
+            let candidate_regions = vec![Region::Guangzhou, Region::Nanjing, Region::Shanghai];
+            let instance_type: ServiceInstanceType = self
+                .server_status_manager
+                .lock()
+                .await
+                .get_instance_type(server)?
+                .try_into()?;
+            let mut try_cnt = 0;
+            let (ip, region, server_id) = {
+                loop {
+                    match self
+                        .query_and_create_server(&candidate_regions, instance_type.clone(), msg)
+                        .await
+                    {
+                        Ok(r) => break r,
+                        Err(e) => {
+                            try_cnt += 1;
+                            if try_cnt == 5 {
+                                return Err(PSMError::CSPClientError(format!(
+                                    "err to create server: {e}"
+                                )));
+                            }
+                        }
+                    }
                 }
-            }
-        };
+            };
+            Ok((ip, region, server_id))
+        }
+        .await?;
         tokio::time::sleep(Duration::from_secs(10)).await;
 
         // upload script
         self.local_storage
             .upload_scripts(&self.shell_manager.ssh_config, &ip)
-            .await
-            .map_err(|e| format!("upload scripts failed: {e}"))?;
+            .await?;
 
         // add build server script exec
-        self.shell_manager
-            .run(&ip, Script::InstallServer)
-            .await
-            .map_err(|e| format!("run install server failed: {e}"))?;
+        self.shell_manager.run(&ip, Script::InstallServer).await?;
 
         let save_name = self
             .server_status_manager
@@ -230,87 +220,56 @@ impl PalTaskHandler {
             // sftp bk files
             self.local_storage
                 .upload_saves(&save_name, &self.shell_manager.ssh_config, &ip)
-                .await
-                .map_err(|e| format!("upload saves failed: {e}"))?;
+                .await?;
             // restore bk saves
-            self.shell_manager
-                .run(&ip, Script::RestoreSave)
-                .await
-                .map_err(|e| format!("restore save failed: {e}"))?;
+            self.shell_manager.run(&ip, Script::RestoreSave).await?;
             self.bot_instant_tx
                 .send(msg.reply(format!("Success load save, {}", save_name)))
-                .await
-                .unwrap_or_else(Self::err_log);
+                .await?;
         }
 
         // server start
-        self.shell_manager
-            .run(&ip, Script::StartServer)
-            .await
-            .map_err(|e| format!("start server failed: {e}"))?;
-
+        self.shell_manager.run(&ip, Script::StartServer).await?;
+        let ip_port = format!("{}:8211", ip);
         self.bot_instant_tx
-            .send(msg.reply(format!("Success create server, ip-port: {}:8211", ip)))
-            .await
-            .unwrap_or_else(Self::err_log);
+            .send(msg.reply(format!("Success create server, ip-port: {ip_port}")))
+            .await?;
         self.server_status_manager
             .lock()
             .await
-            .finish_creating_server(
-                server,
-                &format!("{}:8211", ip),
-                &region.to_string(),
-                &server_id,
-            )?;
+            .finish_creating_server(server, &ip_port, &region.to_string(), &server_id)?;
 
         Ok(())
     }
 
     #[inline]
-    async fn backup_save(&self, server: &str) -> Result<String, String> {
+    async fn backup_save(&self, server: &str) -> Result<String, PSMError> {
         // add bk save
         let ip = self
             .server_status_manager
             .lock()
             .await
-            .get_server_ip(server)
-            .map_err(|e| format!("failed to get server ip infomation: {e}"))?
-            .ok_or_else(|| "failed to get server ip infomation".to_string())?;
-        let save_name = self
-            .shell_manager
-            .run(&ip, Script::BackupSave)
-            .await
-            .map_err(|e| format!("back save failed: {e}"))?;
-
+            .get_server_ip(server)?
+            .ok_or(anyhow::anyhow!("failed to get server ip infomation"))?;
+        let save_name = self.shell_manager.run(&ip, Script::BackupSave).await?;
         self.local_storage
             .download_saves(&save_name, &self.shell_manager.ssh_config, &ip)
-            .await
-            .map_err(|e| format!("download saves failed: {e}"))?;
+            .await?;
         Ok(save_name)
     }
 
-    async fn stop_server(&self, server: &str, msg: &RecvMsg) -> Result<(), String> {
-        if let Err(content) = self
-            .server_status_manager
+    async fn stop_server(&self, server: &str, msg: &RecvMsg) -> Result<(), PSMError> {
+        self.server_status_manager
             .lock()
             .await
-            .check_server_status(server, &Status::Running)
-        {
-            self.bot_instant_tx
-                .send(msg.reply(content.to_string()))
-                .await
-                .unwrap_or_else(Self::err_log);
-            return Ok(());
-        }
+            .check_server_status(server, &Status::Running)?;
 
-        // add bk save
         let save_name = self.backup_save(server).await?;
 
         self.server_status_manager
             .lock()
             .await
-            .update_save_name(server, &save_name)
-            .map_err(|e| format!("update saves infomations failed: {e}"))?;
+            .update_save_name(server, &save_name)?;
 
         let (region, instance_id) = self
             .server_status_manager
@@ -322,8 +281,7 @@ impl PalTaskHandler {
             .cvm()
             .instances()
             .terminate_instance(&region, &instance_id)
-            .await
-            .map_err(|e| format!("delete server err: {e}"))?;
+            .await?;
         self.bot_instant_tx
             .send(msg.reply(format!(
                 "Success delete server {server} instance id: {instance_id}",
@@ -338,27 +296,16 @@ impl PalTaskHandler {
         Ok(())
     }
 
-    async fn save_server(&self, server: &str, msg: &RecvMsg) -> Result<(), String> {
-        if let Err(content) = self
-            .server_status_manager
+    async fn save_server(&self, server: &str, msg: &RecvMsg) -> Result<(), PSMError> {
+        self.server_status_manager
             .lock()
             .await
-            .check_server_status(server, &Status::Running)
-        {
-            self.bot_instant_tx
-                .send(msg.reply(content.to_string()))
-                .await
-                .unwrap_or_else(Self::err_log);
-            return Ok(());
-        }
-
-        // add bk save
+            .check_server_status(server, &Status::Running)?;
         let save_name = self.backup_save(server).await?;
         self.bot_instant_tx
             .send(msg.reply(format!("back save success {save_name}")))
             .await
             .unwrap_or_else(Self::err_log);
-
         Ok(())
     }
 
@@ -374,19 +321,33 @@ impl PalTaskHandler {
             self.list_server(server, msg).await;
         }
         if let Some(server) = start {
-            if let Err(content) = self.start_server(&server, msg).await {
-                println!("debug revoke");
-                self.reply_err_msg(content, msg).await;
-                self.server_status_manager
+            if let Err(e) = self.start_server(&server, msg).await {
+                self.bot_instant_tx
+                    .send(msg.reply(e.to_string()))
+                    .await
+                    .unwrap_or_else(Self::err_log);
+                let res = self
+                    .server_status_manager
                     .lock()
                     .await
                     .failed_create_server(&server)
                     .unwrap();
+                if let (Some(instance_id), Some(region)) = res {
+                    self.client
+                        .cvm()
+                        .instances()
+                        .terminate_instance(&Region::from_str(&region).unwrap(), &instance_id)
+                        .await
+                        .unwrap();
+                }
             }
         }
         if let Some(server) = stop {
-            if let Err(content) = self.stop_server(&server, msg).await {
-                self.reply_err_msg(content, msg).await;
+            if let Err(e) = self.stop_server(&server, msg).await {
+                self.bot_instant_tx
+                    .send(msg.reply(e.to_string()))
+                    .await
+                    .unwrap_or_else(Self::err_log);
                 self.server_status_manager
                     .lock()
                     .await
@@ -395,8 +356,11 @@ impl PalTaskHandler {
             }
         }
         if let Some(server) = save {
-            if let Err(content) = self.save_server(&server, msg).await {
-                self.reply_err_msg(content, msg).await;
+            if let Err(e) = self.save_server(&server, msg).await {
+                self.bot_instant_tx
+                    .send(msg.reply(e.to_string()))
+                    .await
+                    .unwrap_or_else(Self::err_log);
             }
         }
         Some(msg.reply("cmd exec finish.".into()))
