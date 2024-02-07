@@ -33,6 +33,9 @@ pub enum Commands {
     Config {
         r#type: String,
     },
+    Nps {
+        ip: String,
+    },
     // Info {
     //     #[clap(short, long)]
     //     query: Option<String>

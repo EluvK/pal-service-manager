@@ -1977,7 +1977,7 @@ dependencies = [
 [[package]]
 name = "tencentcloud-sdk"
 version = "0.0.1"
-source = "git+https://github.com/EluvK/tencentcloud-sdk.git?branch=master#104e955b1f542e800d54b2ab3f15c26945610344"
+source = "git+https://github.com/EluvK/tencentcloud-sdk.git?branch=master#9e97b5d8e57ae50fff1d31a9f25c63b0b08a839f"
 dependencies = [
  "anyhow",
  "async-trait",

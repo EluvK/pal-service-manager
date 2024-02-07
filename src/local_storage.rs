@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::config::SshConfig;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct LocalSaveStorageConfig {
     local_dir: String,
     remote_dir: String,

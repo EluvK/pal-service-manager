@@ -27,14 +27,14 @@ pub struct PalServiceManager {
 impl PalServiceManager {
     pub async fn new(config: PsmConfig, server_status_path: &std::path::Path) -> Self {
         // need ref
-        let CSPConfig::TencentCloud(csp_config) = config.csp;
+        let CSPConfig::TencentCloud(csp_config) = config.csp.clone();
         let client = Arc::new(TencentCloudClient::new(&csp_config));
 
         let server_status_manager = Arc::new(Mutex::new(ServerManager::new(server_status_path)));
-        let shell_manager = Arc::new(ShellManager::new(config.ssh));
+        let shell_manager = Arc::new(ShellManager::new(config.ssh.clone()));
 
         // need_ref
-        let SaveStorageConfig::Local(storage_config) = config.storage;
+        let SaveStorageConfig::Local(storage_config) = config.storage.clone();
         let local_storage = Arc::new(LocalStorage::new(storage_config));
 
         let (instant_tx, instant_rx) = tokio::sync::mpsc::channel::<SendMsg>(10);
@@ -45,6 +45,7 @@ impl PalServiceManager {
             server_status_manager,
             shell_manager,
             local_storage,
+            Arc::new(config.clone()),
         ));
 
         if let Some(bot_config) = config.bot {
@@ -72,6 +73,7 @@ struct PalTaskHandler {
     pub(crate) server_status_manager: Arc<Mutex<ServerManager>>,
     pub(crate) shell_manager: Arc<ShellManager>,
     pub(crate) local_storage: Arc<LocalStorage>,
+    pub(crate) config: Arc<PsmConfig>,
 }
 
 impl PalTaskHandler {
@@ -81,6 +83,7 @@ impl PalTaskHandler {
         server_status_manager: Arc<Mutex<ServerManager>>,
         shell_manager: Arc<ShellManager>,
         local_storage: Arc<LocalStorage>,
+        config: Arc<PsmConfig>,
     ) -> Self {
         Self {
             client,
@@ -88,6 +91,7 @@ impl PalTaskHandler {
             server_status_manager,
             shell_manager,
             local_storage,
+            config,
         }
     }
     fn err_log(e: impl Display) {
@@ -365,6 +369,43 @@ impl PalTaskHandler {
         }
         Some(msg.reply("cmd exec finish.".into()))
     }
+
+    pub async fn handle_nps_cmd(&self, ip: String, msg: &RecvMsg) -> Option<SendMsg> {
+        if ip.parse::<std::net::IpAddr>().is_err() {
+            return Some(msg.reply("ip format error".into()));
+        }
+        let nps_access = &self.config.nps;
+        let region = Region::from_str(&nps_access.region).unwrap();
+        let instance_id = &nps_access.instance_id;
+        let target_protocol = &nps_access.protocol;
+        let target_port = &nps_access.port;
+        let mut firewallrules = self
+            .client
+            .lighthouse()
+            .firewall()
+            .describe_firewall_rules(&region, instance_id)
+            .await
+            .unwrap_or_default()
+            .response
+            .firewall_rule_set;
+        firewallrules
+            .iter_mut()
+            .filter(|r| r.port == *target_port && r.protocol == *target_protocol)
+            .for_each(|r| {
+                r.cidr_block = ip.clone();
+            });
+        let content = match self
+            .client
+            .lighthouse()
+            .firewall()
+            .modify_firewall_rules(&region, instance_id, firewallrules)
+            .await
+        {
+            Ok(_) => "Success modify firewall rules".to_string(),
+            Err(e) => format!("modify firewall rules failed: {e}"),
+        };
+        Some(msg.reply(content))
+    }
 }
 
 const DEFAULT_REPLY: &str = "使用 `#--help` 来查询命令";
@@ -390,17 +431,20 @@ impl Handler for PalTaskHandler {
                         .await
                 }
                 Commands::Config { r#type: _type } => None,
+                Commands::Nps { ip } => self.handle_nps_cmd(ip, &msg).await,
             };
             return res;
         }
         None
     }
     async fn check_cmd_auth(&self, cmd: &Self::Cmd, ori_msg: &RecvMsg, root_id: u64) -> bool {
-        let root_cmd = cmd
-            .sub
-            .as_ref()
-            .is_some_and(|c| matches!(c, Commands::Config { .. }));
-        debug!("is root cmd: {root_cmd}");
-        !root_cmd || ori_msg.from_id == root_id
+        let white_list = &self.config.whitelist;
+        let allow_act = cmd.sub.as_ref().is_some_and(|c| match c {
+            Commands::Server { .. } => white_list.server.contains(&ori_msg.from_id),
+            Commands::Config { .. } => ori_msg.from_id == root_id,
+            Commands::Nps { .. } => white_list.nps.contains(&ori_msg.from_id),
+        });
+        debug!("is allowed cmd: {allow_act}");
+        allow_act
     }
 }
